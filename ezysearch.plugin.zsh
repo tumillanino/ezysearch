@@ -109,9 +109,9 @@ ezy_github_search() {
   local selected_repo
   
   # If we have a partial repo name in the command line, use it as search query
-  if [[ -n "$LBUFFER" && "$LBUFFER" =~ "git clone " ]]; then
-    # Extract any text after "git clone " as the query
-    query=$(echo "$LBUFFER" | sed 's/git clone \(.*\)/\1/')
+  if [[ -n "$LBUFFER" && "$LBUFFER" =~ "git " ]]; then
+    # Extract any text after "git " as the query
+    query=$(echo "$LBUFFER" | sed 's/git \(.*\)/\1/')
   fi
   
   selected_repo=$(gh search repos "$query" --limit $limit --json nameWithOwner,url --jq '.[] | "\(.nameWithOwner) \(.url)"' | \
@@ -122,9 +122,9 @@ ezy_github_search() {
     local repo_url=$(echo "$selected_repo" | awk '{print $NF}')
     
     # If the command already starts with "git clone", just append the URL
-    if [[ "$LBUFFER" =~ "git clone" ]]; then
+    if [[ "$LBUFFER" =~ "git" ]]; then
       # Clear any text after "git clone "
-      LBUFFER=$(echo "$LBUFFER" | sed 's/git clone .*/git clone /')
+      LBUFFER=$(echo "$LBUFFER" | sed 's/git .*/git /')
       LBUFFER+="$repo_url"
     else
       # Otherwise just add the URL
@@ -174,8 +174,3 @@ bindkey '^P' ezy_package_search
 bindkey '^G' ezy_github_search
 bindkey '^T' ezy_directory_search
 
-# Print banner
-echo "ezysearch loaded - Package manager detected: $(detect_package_manager)"
-echo "  • Ctrl+P: Search packages"
-echo "  • Ctrl+G: Search GitHub repositories"
-echo "  • Ctrl+T: Search directories"

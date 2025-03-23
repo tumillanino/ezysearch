@@ -5,7 +5,7 @@
 set -e
 
 INSTALL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ezysearch"
-SCRIPT_PATH="$INSTALL_DIR/ezysearch.zsh"
+SCRIPT_PATH="$INSTALL_DIR/ezysearch.plugin.zsh"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/ezysearch"
 ZSH_PLUGINS_DIR="${ZDOTDIR:-$HOME}/.zsh/plugins"
 

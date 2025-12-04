@@ -1,7 +1,10 @@
 package ui
 
 import (
+	"bufio"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -58,23 +61,22 @@ func (a *App) createComponents() {
 
 	// Add key bindings for scrolling when detail view is focused
 	a.detailView.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		// Handle scrolling
+		// Handle scrolling and navigation when detail view is focused
 		switch event.Key() {
-		case tcell.KeyUp, tcell.KeyDown, tcell.KeyLeft, tcell.KeyRight:
-			// Let the text view handle scrolling
-			return event
 		case tcell.KeyRune:
 			switch event.Rune() {
 			case 'v':
-				// Return to normal view
-				a.inScriptView = false
-				a.app.SetFocus(a.resultList)
-				// Refresh the package details
-				currentIndex := a.resultList.GetCurrentItem()
-				if currentIndex >= 0 {
-					a.showDetail(currentIndex)
+				// Return to normal view only if we're in script view (not installation)
+				if a.inScriptView {
+					a.inScriptView = false
+					a.app.SetFocus(a.resultList)
+					// Refresh the package details
+					currentIndex := a.resultList.GetCurrentItem()
+					if currentIndex >= 0 {
+						a.showDetail(currentIndex)
+					}
+					return nil
 				}
-				return nil
 			case 'q':
 				// Quit application
 				a.app.Stop()
@@ -93,15 +95,22 @@ func (a *App) createComponents() {
 				return nil
 			}
 		case tcell.KeyEsc:
-			// Return to normal view
-			a.inScriptView = false
-			a.app.SetFocus(a.resultList)
-			// Refresh the package details
-			currentIndex := a.resultList.GetCurrentItem()
-			if currentIndex >= 0 {
-				a.showDetail(currentIndex)
+			// Return to normal view from script view or installation view
+			if a.inScriptView {
+				a.inScriptView = false
+				a.app.SetFocus(a.resultList)
+				// Refresh the package details
+				currentIndex := a.resultList.GetCurrentItem()
+				if currentIndex >= 0 {
+					a.showDetail(currentIndex)
+				}
+				return nil
 			}
-			return nil
+			// If we're in installation view, return to results
+			if a.currentMode == "package" {
+				a.app.SetFocus(a.resultList)
+				return nil
+			}
 		}
 		return event
 	})
@@ -333,6 +342,7 @@ func (a *App) displayResults(results []search.SearchResult) {
 
 	if len(results) > 0 {
 		a.resultList.SetCurrentItem(0)
+		// Only load details for the first item
 		a.showDetail(0)
 	}
 
@@ -468,7 +478,8 @@ func (a *App) selectItem() {
 	// Handle selection based on mode
 	switch a.currentMode {
 	case "package":
-		a.installPackage(result.Value)
+		// Show confirmation dialog before installation
+		a.showInstallConfirmation(result.Value)
 	case "github":
 		a.cloneRepository(result.Value)
 	case "directory":
@@ -476,31 +487,145 @@ func (a *App) selectItem() {
 	}
 }
 
+// showInstallConfirmation displays a confirmation dialog before installation
+func (a *App) showInstallConfirmation(pkgName string) {
+	// Create a modal dialog for confirmation
+	modal := tview.NewModal().
+		SetText(fmt.Sprintf("Do you want to install package '%s'?", pkgName)).
+		AddButtons([]string{"Install", "Cancel"}).
+		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+			if buttonLabel == "Install" {
+				a.installPackage(pkgName)
+			}
+			// Remove the modal and return focus to the main view
+			a.app.SetRoot(a.flexRoot, true)
+			a.app.SetFocus(a.resultList)
+		})
+
+	// Display the modal
+	a.app.SetRoot(modal, false)
+}
+
 // installPackage installs a package using the appropriate package manager
 func (a *App) installPackage(pkgName string) {
 	pkgManager := util.DetectPackageManager()
 	var cmd *exec.Cmd
 
+	// Use the configured sudo command
+	sudoCmd := a.conf.PackageManager.Sudo
+
+	// Check if sudo is needed and provide user guidance
+	needsSudo := false
+	var fullCommand string
+
 	switch pkgManager {
 	case util.Yay:
-		cmd = exec.Command("yay", "-S", pkgName)
+		// Yay doesn't need sudo
+		args := append([]string{"-S", pkgName}, a.conf.PackageManager.YayFlags...)
+		cmd = exec.Command("yay", args...)
+		fullCommand = fmt.Sprintf("yay -S %s", pkgName)
 	case util.Pacman:
-		cmd = exec.Command("sudo", "pacman", "-S", pkgName)
+		args := append([]string{"pacman", "-S", pkgName}, a.conf.PackageManager.PacmanFlags...)
+		cmd = exec.Command(sudoCmd, args...)
+		fullCommand = fmt.Sprintf("%s pacman -S %s", sudoCmd, pkgName)
+		needsSudo = true
 	case util.Apt:
-		cmd = exec.Command("sudo", "apt", "install", pkgName)
+		args := append([]string{"apt", "install", pkgName}, a.conf.PackageManager.AptFlags...)
+		cmd = exec.Command(sudoCmd, args...)
+		fullCommand = fmt.Sprintf("%s apt install %s", sudoCmd, pkgName)
+		needsSudo = true
 	case util.Brew:
-		cmd = exec.Command("brew", "install", pkgName)
+		// Brew doesn't need sudo on modern macOS
+		args := append([]string{"install", pkgName}, a.conf.PackageManager.BrewFlags...)
+		cmd = exec.Command("brew", args...)
+		fullCommand = fmt.Sprintf("brew install %s", pkgName)
 	case util.Dnf:
-		cmd = exec.Command("sudo", "dnf", "install", pkgName)
+		args := append([]string{"dnf", "install", pkgName}, a.conf.PackageManager.DnfFlags...)
+		cmd = exec.Command(sudoCmd, args...)
+		fullCommand = fmt.Sprintf("%s dnf install %s", sudoCmd, pkgName)
+		needsSudo = true
+	case util.Zypper:
+		args := append([]string{"zypper", "install", pkgName}, a.conf.PackageManager.ZypperFlags...)
+		cmd = exec.Command(sudoCmd, args...)
+		fullCommand = fmt.Sprintf("%s zypper install %s", sudoCmd, pkgName)
+		needsSudo = true
 	default:
 		a.detailView.SetText("No supported package manager found")
 		return
 	}
 
-	a.detailView.SetText(fmt.Sprintf("Installing %s...\n\nRunning: %s", pkgName, strings.Join(cmd.Args, " ")))
+	// Show installation header with navigation instructions
+	header := fmt.Sprintf("[:: Installing package: %s ::]\n", pkgName)
+	header += "[:: View real-time output below ::]\n"
+	header += "[:: Press 'q' to quit, 'Esc' to return to search ::]\n\n"
 	
-	// In a real implementation, you would execute the command and show output
-	// For now, we'll just show what would be executed
+	if needsSudo {
+		header += fmt.Sprintf("Command: %s\n", fullCommand)
+		header += "Note: System may prompt for password in terminal\n\n"
+	} else {
+		header += fmt.Sprintf("Command: %s\n\n", fullCommand)
+	}
+	
+	a.detailView.SetText(header)
+	
+	// Create a pipe to capture command output
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		a.detailView.SetText(fmt.Sprintf("%sError creating stdout pipe: %v", header, err))
+		return
+	}
+	
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		a.detailView.SetText(fmt.Sprintf("%sError creating stderr pipe: %v", header, err))
+		return
+	}
+	
+	// Set proper environment to handle terminal interaction
+	cmd.Stdin = os.Stdin
+	
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		a.detailView.SetText(fmt.Sprintf("%sError starting installation: %v", header, err))
+		return
+	}
+	
+	// Move focus to detail view to show output
+	a.app.SetFocus(a.detailView)
+	
+	// Create a multi-reader to combine stdout and stderr
+	outputReader := io.MultiReader(stdout, stderr)
+	
+	// Read output in a goroutine and update the UI
+	go func() {
+		scanner := bufio.NewScanner(outputReader)
+		for scanner.Scan() {
+			line := scanner.Text()
+			a.app.QueueUpdateDraw(func() {
+				currentText := a.detailView.GetText(true)
+				// Append new line to existing content
+				newText := currentText + line + "\n"
+				a.detailView.SetText(newText)
+				// Scroll to bottom
+				a.detailView.ScrollToEnd()
+			})
+		}
+		
+		// Wait for command to finish
+		err := cmd.Wait()
+		a.app.QueueUpdateDraw(func() {
+			if err != nil {
+				a.detailView.SetText(fmt.Sprintf("%s\nInstallation completed with errors: %v", a.detailView.GetText(true), err))
+			} else {
+				a.detailView.SetText(fmt.Sprintf("%s\nInstallation completed successfully!", a.detailView.GetText(true)))
+			}
+			
+			// Add final instructions
+			finalText := a.detailView.GetText(true)
+			finalText += "\n[:: Press 'Esc' to return to search ::]\n"
+			a.detailView.SetText(finalText)
+		})
+	}()
 }
 
 // cloneRepository clones a GitHub repository

@@ -23,6 +23,8 @@ func GetPackageScript(pkgName string) (string, error) {
 		return getBrewPackageScript(pkgName)
 	case util.Dnf:
 		return getDnfPackageScript(pkgName)
+	case util.Zypper:
+		return getZypperPackageScript(pkgName)
 	default:
 		return "", fmt.Errorf("package script viewing not supported for this package manager")
 	}
@@ -41,7 +43,7 @@ func getYayPackageScript(pkgName string) (string, error) {
 	cmd = exec.Command("yay", "-p", pkgName)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("could not retrieve PKGBUILD for %s: %v", pkgName, err)
+		return "", fmt.Errorf("could not retrieve PKGBUILD for %s (try running yay -Sy to refresh package databases): %v", pkgName, err)
 	}
 	
 	return string(output), nil
@@ -57,7 +59,7 @@ func getPacmanPackageScript(pkgName string) (string, error) {
 		cmd = exec.Command("pacman", "-Si", pkgName)
 		infoOutput, infoErr := cmd.Output()
 		if infoErr != nil {
-			return "", fmt.Errorf("could not retrieve package info for %s: %v", pkgName, infoErr)
+			return "", fmt.Errorf("could not retrieve package info for %s (try running pacman -Sy to refresh package databases): %v", pkgName, infoErr)
 		}
 		
 		// Parse the repository to construct URL
@@ -158,6 +160,32 @@ func getDnfPackageScript(pkgName string) (string, error) {
 	note += "# To see the full spec file, you would need to:\n"
 	note += fmt.Sprintf("# dnf download --source %s\n", pkgName)
 	note += "# rpm2cpio <source-package.src.rpm> | cpio -idmv\n"
+	
+	return info + note, nil
+}
+
+// getZypperPackageScript gets package information for zypper
+func getZypperPackageScript(pkgName string) (string, error) {
+	// Get package information
+	cmd := exec.Command("zypper", "info", pkgName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("could not retrieve package information for %s: %v", pkgName, err)
+	}
+	
+	info := string(output)
+	
+	// Try to get source information if available
+	sourceCmd := exec.Command("zypper", "source-download", "--dry-run", pkgName)
+	sourceOutput, sourceErr := sourceCmd.CombinedOutput()
+	if sourceErr == nil {
+		info += "\n\n# Source Package Information:\n" + string(sourceOutput)
+	}
+	
+	// Add note about accessing source packages
+	note := "\n# Note: To download and examine source packages:\n"
+	note += fmt.Sprintf("# zypper source-download %s\n", pkgName)
+	note += "# zypper si %s  # Show source info\n"
 	
 	return info + note, nil
 }

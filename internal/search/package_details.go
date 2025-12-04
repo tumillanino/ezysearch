@@ -48,6 +48,8 @@ func GetPackageDetails(pkgName string) (*DetailedPackage, error) {
 		return getBrewPackageDetails(pkgName)
 	case util.Dnf:
 		return getDnfPackageDetails(pkgName)
+	case util.Zypper:
+		return getZypperPackageDetails(pkgName)
 	default:
 		return nil, fmt.Errorf("unsupported package manager")
 	}
@@ -106,6 +108,17 @@ func getDnfPackageDetails(pkgName string) (*DetailedPackage, error) {
 	}
 	
 	return parseDnfInfo(string(output)), nil
+}
+
+// getZypperPackageDetails gets detailed package information for zypper
+func getZypperPackageDetails(pkgName string) (*DetailedPackage, error) {
+	cmd := exec.Command("zypper", "info", pkgName)
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	
+	return parseZypperInfo(string(output)), nil
 }
 
 // parsePacmanInfo parses pacman package information
@@ -259,6 +272,85 @@ func parseDnfInfo(output string) *DetailedPackage {
 			pkg.Architecture = value
 		case "Size":
 			pkg.InstalledSize = value
+		}
+	}
+	
+	return pkg
+}
+
+// parseZypperInfo parses zypper package information
+func parseZypperInfo(output string) *DetailedPackage {
+	pkg := &DetailedPackage{}
+	lines := strings.Split(output, "\n")
+	
+	// Track if we're in the "Repository" section
+	inRepositorySection := false
+	
+	for _, line := range lines {
+		// Check for section headers
+		if strings.HasPrefix(line, "Information for package") {
+			// Extract package name from "Information for package packagename:"
+			parts := strings.Split(line, " ")
+			if len(parts) >= 4 {
+				pkg.Name = strings.TrimSuffix(parts[3], ":")
+			}
+			continue
+		}
+		
+		if strings.HasPrefix(line, "Repository") {
+			inRepositorySection = true
+			continue
+		}
+		
+		// Skip empty lines
+		if line == "" {
+			continue
+		}
+		
+		// Parse key-value pairs
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		
+		// Skip if we're in repository section and the key is not relevant
+		if inRepositorySection && key != "Alias" && key != "Name" && key != "Path" {
+			continue
+		}
+		
+		// Reset repository section flag when we hit a new section
+		if inRepositorySection && (key == "Alias" || key == "Name" || key == "Path") {
+			inRepositorySection = false
+		}
+		
+		switch key {
+		case "Name":
+			if pkg.Name == "" { // Only set if not already set from header
+				pkg.Name = value
+			}
+		case "Version":
+			pkg.Version = value
+		case "Arch":
+			pkg.Architecture = value
+		case "Vendor":
+			pkg.Packager = value
+		case "Summary":
+			pkg.Description = value
+		case "Description":
+			if pkg.Description == "" {
+				pkg.Description = value
+			} else {
+				pkg.Description += "\n" + value
+			}
+		case "License":
+			pkg.Licenses = strings.Split(value, " ")
+		case "Installed Size":
+			pkg.InstalledSize = value
+		case "Download Size":
+			pkg.DownloadSize = value
 		}
 	}
 	

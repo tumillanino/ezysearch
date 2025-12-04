@@ -48,6 +48,8 @@ func PackageSearch(query string) ([]SearchResult, error) {
 		return brewSearch(query)
 	case util.Dnf:
 		return dnfSearch(query)
+	case util.Zypper:
+		return zypperSearch(query)
 	default:
 		return nil, fmt.Errorf("no supported package manager found")
 	}
@@ -226,6 +228,40 @@ func dnfSearch(query string) ([]SearchResult, error) {
 		if len(parts) > 0 {
 			// Remove architecture suffix if present
 			pkgName := strings.Split(parts[0], ".")[0]
+			packages = append(packages, pkgName)
+		}
+	}
+	
+	return filterPackages(packages, query), nil
+}
+
+// zypperSearch searches for packages using zypper
+func zypperSearch(query string) ([]SearchResult, error) {
+	cmd := exec.Command("zypper", "search", query)
+	output, err := cmd.Output()
+	if err != nil {
+		// Zypper returns non-zero exit code even for successful searches with no results
+		// So we need to check if it's actually an error
+		if !strings.Contains(err.Error(), "exit status 104") {
+			return nil, err
+		}
+	}
+	
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var packages []string
+	
+	// Parse zypper search output
+	// Skip header lines and parse package names
+	for _, line := range lines {
+		// Skip empty lines and header lines
+		if line == "" || strings.HasPrefix(line, "S |") || strings.HasPrefix(line, "--+") {
+			continue
+		}
+		
+		// Parse the line: "i | package-name | summary"
+		parts := strings.Split(line, "|")
+		if len(parts) >= 2 {
+			pkgName := strings.TrimSpace(parts[1])
 			packages = append(packages, pkgName)
 		}
 	}

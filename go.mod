@@ -3,6 +3,7 @@ module github.com/tumillanino/ezysearch
 go 1.23.0
 
 require (
+	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/gdamore/encoding v1.0.1 // indirect
 	github.com/gdamore/tcell/v2 v2.9.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect

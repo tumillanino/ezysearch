@@ -16,6 +16,7 @@ const (
 	Apt     PackageManager = "apt"
 	Brew    PackageManager = "brew"
 	Dnf     PackageManager = "dnf"
+	Zypper  PackageManager = "zypper"
 )
 
 // DetectPackageManager detects the system package manager
@@ -43,6 +44,11 @@ func DetectPackageManager() PackageManager {
 	// Check for dnf (Fedora)
 	if CommandExists("dnf") {
 		return Dnf
+	}
+
+	// Check for zypper (OpenSUSE)
+	if CommandExists("zypper") {
+		return Zypper
 	}
 
 	return Unknown

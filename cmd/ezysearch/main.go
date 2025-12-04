@@ -24,23 +24,18 @@ func main() {
 			// Handle installation
 			fmt.Println("Installation functionality will be implemented here")
 			return
+		case "--config":
+			// Generate default config
+			generateConfig()
+			return
 		}
 	}
 
 	// Load configuration
 	conf, err := config.Load()
 	if err != nil {
-		if os.IsNotExist(err) {
-			// Create default config
-			conf = config.Default()
-			if err := conf.Save(); err != nil {
-				fmt.Fprintf(os.Stderr, "Error creating configuration: %v\n", err)
-				os.Exit(1)
-			}
-		} else {
-			fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
-			os.Exit(1)
-		}
+		fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
+		os.Exit(1)
 	}
 
 	// Create and start the UI
@@ -65,6 +60,7 @@ Options:
   -h, --help     Show this help message
   -v, --version  Show version information
   --install      Install ezysearch
+  --config       Generate default configuration file
 
 Key Bindings:
   Ctrl+P         Search for packages
@@ -74,9 +70,25 @@ Key Bindings:
 
 Navigation:
   Arrow keys     Navigate through results
-  Enter          Select an item
-  Esc            Close current view
+  j/k            Vim-style navigation (up/down)
+  g/G            Move to top/bottom of list
+  v/V            View package script
+  q              Quit application
+  /              Focus on search input
+  Enter          Execute search or select item
+  Esc            Return to previous view
 
 For more information, visit: https://github.com/tumillanino/ezysearch
 `)
+}
+
+func generateConfig() {
+	conf := config.Default()
+	if err := conf.Save(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating configuration: %v\n", err)
+		os.Exit(1)
+	}
+	
+	fmt.Printf("Default configuration file generated at: %s\n", config.ConfigPath())
+	fmt.Println("You can now edit this file to customize ezysearch settings.")
 }

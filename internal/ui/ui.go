@@ -421,12 +421,17 @@ func (a *App) performSearch() {
 func (a *App) displayResults(results []search.SearchResult) {
 	a.resultList.Clear()
 
+	showSecondaryText := false
 	for _, result := range results {
-		// Add item to list
-		description := result.Description
-		if description == "" {
-			description = result.Value
+		if strings.TrimSpace(result.Description) != "" {
+			showSecondaryText = true
+			break
 		}
+	}
+	a.resultList.ShowSecondaryText(showSecondaryText)
+
+	for _, result := range results {
+		description := result.Description
 		a.resultList.AddItem(result.Title, description, 0, nil)
 	}
 

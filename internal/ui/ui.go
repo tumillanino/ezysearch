@@ -2,11 +2,15 @@ package ui
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -21,20 +25,36 @@ type App struct {
 	conf          *config.Settings
 	app           *tview.Application
 	flexRoot      *tview.Flex
+	header        *tview.TextView
 	inputField    *tview.InputField
 	resultList    *tview.List
 	detailView    *tview.TextView
+	statusBar     *tview.TextView
 	currentMode   string
 	selectedItem  string
 	searchResults []search.SearchResult
-	inScriptView  bool  // Track if we're in script view mode
+	pkgManager    util.PackageManager
+	inScriptView  bool // Track if we're in script view mode
 }
 
+const (
+	colorAccent = tcell.ColorSteelBlue
+	colorMuted  = tcell.ColorGray
+	colorPanel  = tcell.ColorDarkSlateGray
+)
+
 // New creates a new UI application
-func New(conf *config.Settings) (*App, error) {
+func New(conf *config.Settings, pkgManager ...util.PackageManager) (*App, error) {
+	selectedManager := util.Unknown
+	if len(pkgManager) > 0 {
+		selectedManager = pkgManager[0]
+	}
+
 	app := &App{
-		conf: conf,
-		app:  tview.NewApplication(),
+		conf:        conf,
+		app:         tview.NewApplication(),
+		currentMode: "package",
+		pkgManager:  selectedManager,
 	}
 
 	app.createComponents()
@@ -44,20 +64,50 @@ func New(conf *config.Settings) (*App, error) {
 
 // createComponents sets up all UI components
 func (a *App) createComponents() {
-	// Create input field
+	a.header = tview.NewTextView().
+		SetDynamicColors(true).
+		SetTextAlign(tview.AlignCenter)
+	a.header.SetText("[::b] ezysearch [-:-:-] [gray]Package, GitHub, and file search")
+
 	a.inputField = tview.NewInputField().
-		SetLabel("Search: ").
-		SetFieldWidth(50)
+		SetFieldWidth(0).
+		SetFieldTextColor(tcell.ColorWhite).
+		SetFieldBackgroundColor(tcell.ColorBlack).
+		SetLabelColor(colorAccent).
+		SetDoneFunc(func(key tcell.Key) {
+			if key == tcell.KeyEnter {
+				a.performSearch()
+				a.app.SetFocus(a.resultList)
+			}
+		})
+	a.inputField.SetBorder(true).
+		SetBorderColor(colorPanel).
+		SetTitleColor(colorAccent)
 
-	// Create result list
 	a.resultList = tview.NewList().
-		ShowSecondaryText(true)
+		ShowSecondaryText(true).
+		SetMainTextColor(tcell.ColorWhite).
+		SetSecondaryTextColor(colorMuted).
+		SetSelectedTextColor(tcell.ColorBlack).
+		SetSelectedBackgroundColor(colorAccent).
+		SetHighlightFullLine(true)
+	a.resultList.SetBorder(true).
+		SetBorderColor(colorPanel).
+		SetTitle(" Results ").
+		SetTitleColor(colorAccent)
 
-	// Create detail view
 	a.detailView = tview.NewTextView().
 		SetDynamicColors(true).
 		SetScrollable(true).
 		SetWrap(true)
+	a.detailView.SetBorder(true).
+		SetBorderColor(colorPanel).
+		SetTitle(" Details ").
+		SetTitleColor(colorAccent)
+
+	a.statusBar = tview.NewTextView().
+		SetDynamicColors(true).
+		SetTextColor(colorMuted)
 
 	// Add key bindings for scrolling when detail view is focused
 	a.detailView.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
@@ -115,17 +165,57 @@ func (a *App) createComponents() {
 		return event
 	})
 
-	// Create layout
 	a.flexRoot = tview.NewFlex().
 		SetDirection(tview.FlexRow).
-		AddItem(a.inputField, 3, 1, true).
+		AddItem(a.header, 1, 0, false).
+		AddItem(a.inputField, 3, 0, true).
 		AddItem(tview.NewFlex().
-			AddItem(a.resultList, 0, 1, false).
-			AddItem(a.detailView, 0, 1, false),
-			0, 1, false)
+			AddItem(a.resultList, 0, 2, false).
+			AddItem(a.detailView, 0, 3, false),
+			0, 1, false).
+		AddItem(a.statusBar, 1, 0, false)
 
-	// Set focus to input field
+	a.setMode("package")
+	a.setStatus("Type a query, press Enter to search. Ctrl+P packages, Ctrl+G GitHub, Ctrl+T files.")
+	a.detailView.SetText("[gray]Search results will appear on the left. Select an item to preview details here.")
 	a.app.SetFocus(a.inputField)
+}
+
+func (a *App) setMode(mode string) {
+	a.currentMode = mode
+
+	var label, title string
+	switch mode {
+	case "github":
+		label = " GitHub "
+		title = " Search GitHub repositories "
+	case "directory":
+		label = " Files "
+		title = " Search files and directories "
+	default:
+		a.currentMode = "package"
+		label = " Package "
+		title = fmt.Sprintf(" Search packages (%s) ", a.packageManagerLabel())
+	}
+
+	a.inputField.SetLabel(label)
+	a.inputField.SetTitle(title)
+	a.setStatus("Enter searches, j/k moves, / focuses search, v views package scripts, q quits.")
+}
+
+func (a *App) setStatus(message string) {
+	a.statusBar.SetText("[gray] " + message)
+}
+
+func (a *App) packageManager() util.PackageManager {
+	return util.ResolvePackageManager(a.pkgManager)
+}
+
+func (a *App) packageManagerLabel() string {
+	if a.pkgManager == util.Unknown {
+		return "auto"
+	}
+	return string(a.pkgManager)
 }
 
 // setupKeyBindings sets up key bindings for the application
@@ -134,18 +224,15 @@ func (a *App) setupKeyBindings() {
 	a.inputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyCtrlP:
-			a.currentMode = "package"
-			a.inputField.SetLabel("Package Search: ")
+			a.setMode("package")
 			a.app.SetFocus(a.inputField)
 			return nil
 		case tcell.KeyCtrlG:
-			a.currentMode = "github"
-			a.inputField.SetLabel("GitHub Search: ")
+			a.setMode("github")
 			a.app.SetFocus(a.inputField)
 			return nil
 		case tcell.KeyCtrlT:
-			a.currentMode = "directory"
-			a.inputField.SetLabel("Directory Search: ")
+			a.setMode("directory")
 			a.app.SetFocus(a.inputField)
 			return nil
 		case tcell.KeyEnter:
@@ -156,32 +243,29 @@ func (a *App) setupKeyBindings() {
 			a.app.Stop()
 			return nil
 		}
-		
+
 		// Vim keybindings for switching modes
 		switch event.Rune() {
 		case 'p':
 			if event.Modifiers() == tcell.ModCtrl {
-				a.currentMode = "package"
-				a.inputField.SetLabel("Package Search: ")
+				a.setMode("package")
 				a.app.SetFocus(a.inputField)
 				return nil
 			}
 		case 'g':
 			if event.Modifiers() == tcell.ModCtrl {
-				a.currentMode = "github"
-				a.inputField.SetLabel("GitHub Search: ")
+				a.setMode("github")
 				a.app.SetFocus(a.inputField)
 				return nil
 			}
 		case 't':
 			if event.Modifiers() == tcell.ModCtrl {
-				a.currentMode = "directory"
-				a.inputField.SetLabel("Directory Search: ")
+				a.setMode("directory")
 				a.app.SetFocus(a.inputField)
 				return nil
 			}
 		}
-		
+
 		return event
 	})
 
@@ -195,7 +279,7 @@ func (a *App) setupKeyBindings() {
 			a.app.SetFocus(a.inputField)
 			return nil
 		}
-		
+
 		// Vim keybindings for navigation
 		switch event.Rune() {
 		case 'j':
@@ -238,7 +322,7 @@ func (a *App) setupKeyBindings() {
 			a.viewPackageScript()
 			return nil
 		}
-		
+
 		return event
 	})
 
@@ -249,79 +333,81 @@ func (a *App) setupKeyBindings() {
 			a.app.Stop()
 			return nil
 		case tcell.KeyCtrlP:
-			a.currentMode = "package"
-			a.inputField.SetLabel("Package Search: ")
+			a.setMode("package")
 			a.app.SetFocus(a.inputField)
 			return nil
 		case tcell.KeyCtrlG:
-			a.currentMode = "github"
-			a.inputField.SetLabel("GitHub Search: ")
+			a.setMode("github")
 			a.app.SetFocus(a.inputField)
 			return nil
 		case tcell.KeyCtrlT:
-			a.currentMode = "directory"
-			a.inputField.SetLabel("Directory Search: ")
+			a.setMode("directory")
 			a.app.SetFocus(a.inputField)
 			return nil
 		}
-		
+
 		// Vim keybindings for switching modes globally
 		switch event.Rune() {
 		case 'p':
 			if event.Modifiers() == tcell.ModCtrl {
-				a.currentMode = "package"
-				a.inputField.SetLabel("Package Search: ")
+				a.setMode("package")
 				a.app.SetFocus(a.inputField)
 				return nil
 			}
 		case 'g':
 			if event.Modifiers() == tcell.ModCtrl {
-				a.currentMode = "github"
-				a.inputField.SetLabel("GitHub Search: ")
+				a.setMode("github")
 				a.app.SetFocus(a.inputField)
 				return nil
 			}
 		case 't':
 			if event.Modifiers() == tcell.ModCtrl {
-				a.currentMode = "directory"
-				a.inputField.SetLabel("Directory Search: ")
+				a.setMode("directory")
 				a.app.SetFocus(a.inputField)
 				return nil
 			}
 		}
-		
+
 		return event
 	})
 }
 
 // performSearch executes the search based on current mode
 func (a *App) performSearch() {
-	query := a.inputField.GetText()
+	query := strings.TrimSpace(a.inputField.GetText())
 	if query == "" {
+		a.setStatus("Enter a search term first.")
 		return
 	}
 
+	searchMode := a.currentMode
 	a.resultList.Clear()
-	a.detailView.SetText("Searching...")
+	a.searchResults = nil
+	a.detailView.SetText(fmt.Sprintf("[yellow]Searching %s for:[white] %s", searchMode, tview.Escape(query)))
+	a.setStatus("Searching...")
 
 	go func() {
 		var results []search.SearchResult
 		var err error
 
-		switch a.currentMode {
+		switch searchMode {
 		case "package":
-			results, err = search.PackageSearch(query)
+			results, err = search.PackageSearchWithManager(query, a.packageManager())
 		case "github":
 			results, err = search.GitHubSearch(query, a.conf.GitHubLimit)
 		case "directory":
 			results, err = search.DirectorySearch(query, a.conf.DirectoryCommand)
 		default:
-			results, err = search.PackageSearch(query)
+			results, err = search.PackageSearchWithManager(query, a.packageManager())
 		}
 
 		a.app.QueueUpdateDraw(func() {
+			if a.currentMode != searchMode {
+				return
+			}
 			if err != nil {
-				a.detailView.SetText(fmt.Sprintf("Error: %v", err))
+				a.detailView.SetText(fmt.Sprintf("[red]Error:[white] %v", err))
+				a.setStatus("Search failed.")
 				return
 			}
 
@@ -337,13 +423,21 @@ func (a *App) displayResults(results []search.SearchResult) {
 
 	for _, result := range results {
 		// Add item to list
-		a.resultList.AddItem(result.Title, result.Description, 0, nil)
+		description := result.Description
+		if description == "" {
+			description = result.Value
+		}
+		a.resultList.AddItem(result.Title, description, 0, nil)
 	}
 
 	if len(results) > 0 {
 		a.resultList.SetCurrentItem(0)
 		// Only load details for the first item
 		a.showDetail(0)
+		a.setStatus(fmt.Sprintf("%d result(s). Enter selects, / edits search, q quits.", len(results)))
+	} else {
+		a.detailView.SetText("[gray]No results found.")
+		a.setStatus("No results found.")
 	}
 
 	// Set selection handler
@@ -365,32 +459,91 @@ func (a *App) showDetail(index int) {
 	}
 
 	result := a.searchResults[index]
-	
+
 	// For package mode, show detailed package information
 	if a.currentMode == "package" {
 		a.showPackageDetail(result.Value)
 		return
 	}
 
-	detail := fmt.Sprintf("[green]Title:[white] %s\n\n[green]Description:[white] %s\n\n[green]Value:[white] %s",
-		result.Title, result.Description, result.Value)
+	if a.currentMode == "directory" {
+		a.showDirectoryDetail(result.Value)
+		return
+	}
+
+	detail := fmt.Sprintf("[blue]Repository[white]\n%s\n\n[blue]Description[white]\n%s\n\n[blue]Clone URL[white]\n%s",
+		tview.Escape(result.Title), tview.Escape(result.Description), tview.Escape(result.Value))
 	a.detailView.SetText(detail)
 }
 
 // showPackageDetail displays detailed package information
 func (a *App) showPackageDetail(pkgName string) {
 	a.detailView.SetText("Loading package details...")
-	
+
 	go func() {
-		details, err := search.GetPackageDetails(pkgName)
+		details, err := search.GetPackageDetailsWithManager(pkgName, a.packageManager())
 		a.app.QueueUpdateDraw(func() {
 			if err != nil {
 				a.detailView.SetText(fmt.Sprintf("Error loading package details: %v", err))
 				return
 			}
-			
+
 			detail := formatPackageDetails(details)
 			a.detailView.SetText(detail)
+		})
+	}()
+}
+
+func (a *App) showDirectoryDetail(path string) {
+	info, err := os.Stat(path)
+	if err != nil {
+		a.detailView.SetText(fmt.Sprintf("[red]Could not inspect path:[white] %v", err))
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("[blue]Path[white]\n")
+	sb.WriteString(tview.Escape(path))
+	sb.WriteString("\n\n")
+	sb.WriteString(fmt.Sprintf("[blue]Type:[white] %s\n", fileKind(info)))
+	sb.WriteString(fmt.Sprintf("[blue]Size:[white] %s\n", formatBytes(info.Size())))
+	sb.WriteString(fmt.Sprintf("[blue]Modified:[white] %s\n", info.ModTime().Format(time.RFC1123)))
+
+	if info.IsDir() {
+		entries, err := os.ReadDir(path)
+		if err == nil {
+			sb.WriteString("\n[blue]Contents[white]\n")
+			for i, entry := range entries {
+				if i >= 40 {
+					sb.WriteString("...\n")
+					break
+				}
+				name := entry.Name()
+				if entry.IsDir() {
+					name += string(os.PathSeparator)
+				}
+				sb.WriteString(tview.Escape(name))
+				sb.WriteString("\n")
+			}
+		}
+		a.detailView.SetText(sb.String())
+		return
+	}
+
+	if a.conf.PreviewCommand == "" {
+		a.detailView.SetText(sb.String())
+		return
+	}
+
+	a.detailView.SetText(sb.String() + "\n[gray]Loading preview...")
+	go func() {
+		preview, err := previewFile(path, a.conf.PreviewCommand)
+		a.app.QueueUpdateDraw(func() {
+			if err != nil {
+				a.detailView.SetText(sb.String() + fmt.Sprintf("\n[yellow]Preview unavailable:[white] %v", err))
+				return
+			}
+			a.detailView.SetText(sb.String() + "\n[blue]Preview[white]\n" + tview.Escape(preview))
 		})
 	}()
 }
@@ -398,70 +551,70 @@ func (a *App) showPackageDetail(pkgName string) {
 // formatPackageDetails formats package details for display
 func formatPackageDetails(pkg *search.DetailedPackage) string {
 	var sb strings.Builder
-	
-	sb.WriteString(fmt.Sprintf("[green]Package:[white] %s\n", pkg.Name))
-	sb.WriteString(fmt.Sprintf("[green]Version:[white] %s\n", pkg.Version))
-	
+
+	sb.WriteString(fmt.Sprintf("[blue]Package[white]\n%s\n\n", tview.Escape(pkg.Name)))
+	sb.WriteString(fmt.Sprintf("[blue]Version[white]\n%s\n", tview.Escape(pkg.Version)))
+
 	if pkg.Description != "" {
-		sb.WriteString(fmt.Sprintf("[green]Description:[white] %s\n", pkg.Description))
+		sb.WriteString(fmt.Sprintf("\n[blue]Description[white]\n%s\n", tview.Escape(pkg.Description)))
 	}
-	
+
 	if pkg.Repository != "" {
-		sb.WriteString(fmt.Sprintf("[green]Repository:[white] %s\n", pkg.Repository))
+		sb.WriteString(fmt.Sprintf("\n[blue]Repository[white]\n%s\n", tview.Escape(pkg.Repository)))
 	}
-	
+
 	if pkg.Architecture != "" {
-		sb.WriteString(fmt.Sprintf("[green]Architecture:[white] %s\n", pkg.Architecture))
+		sb.WriteString(fmt.Sprintf("[blue]Architecture:[white] %s\n", tview.Escape(pkg.Architecture)))
 	}
-	
+
 	if pkg.URL != "" {
-		sb.WriteString(fmt.Sprintf("[green]URL:[white] %s\n", pkg.URL))
+		sb.WriteString(fmt.Sprintf("[blue]URL:[white] %s\n", tview.Escape(pkg.URL)))
 	}
-	
+
 	if len(pkg.Licenses) > 0 {
-		sb.WriteString(fmt.Sprintf("[green]Licenses:[white] %s\n", strings.Join(pkg.Licenses, ", ")))
+		sb.WriteString(fmt.Sprintf("[blue]Licenses:[white] %s\n", tview.Escape(strings.Join(pkg.Licenses, ", "))))
 	}
-	
+
 	if pkg.DownloadSize != "" {
-		sb.WriteString(fmt.Sprintf("[green]Download Size:[white] %s\n", pkg.DownloadSize))
+		sb.WriteString(fmt.Sprintf("[blue]Download Size:[white] %s\n", tview.Escape(pkg.DownloadSize)))
 	}
-	
+
 	if pkg.InstalledSize != "" {
-		sb.WriteString(fmt.Sprintf("[green]Installed Size:[white] %s\n", pkg.InstalledSize))
+		sb.WriteString(fmt.Sprintf("[blue]Installed Size:[white] %s\n", tview.Escape(pkg.InstalledSize)))
 	}
-	
+
 	if pkg.Packager != "" {
-		sb.WriteString(fmt.Sprintf("[green]Packager:[white] %s\n", pkg.Packager))
+		sb.WriteString(fmt.Sprintf("[blue]Packager:[white] %s\n", tview.Escape(pkg.Packager)))
 	}
-	
+
 	if pkg.BuildDate != "" {
-		sb.WriteString(fmt.Sprintf("[green]Build Date:[white] %s\n", pkg.BuildDate))
+		sb.WriteString(fmt.Sprintf("[blue]Build Date:[white] %s\n", tview.Escape(pkg.BuildDate)))
 	}
-	
+
 	if pkg.InstallDate != "" {
-		sb.WriteString(fmt.Sprintf("[green]Install Date:[white] %s\n", pkg.InstallDate))
+		sb.WriteString(fmt.Sprintf("[blue]Install Date:[white] %s\n", tview.Escape(pkg.InstallDate)))
 	}
-	
+
 	if len(pkg.Groups) > 0 {
-		sb.WriteString(fmt.Sprintf("[green]Groups:[white] %s\n", strings.Join(pkg.Groups, ", ")))
+		sb.WriteString(fmt.Sprintf("[blue]Groups:[white] %s\n", tview.Escape(strings.Join(pkg.Groups, ", "))))
 	}
-	
+
 	if len(pkg.Provides) > 0 {
-		sb.WriteString(fmt.Sprintf("[green]Provides:[white] %s\n", strings.Join(pkg.Provides, ", ")))
+		sb.WriteString(fmt.Sprintf("[blue]Provides:[white] %s\n", tview.Escape(strings.Join(pkg.Provides, ", "))))
 	}
-	
+
 	if len(pkg.DependsOn) > 0 {
-		sb.WriteString(fmt.Sprintf("[green]Depends On:[white] %s\n", strings.Join(pkg.DependsOn, ", ")))
+		sb.WriteString(fmt.Sprintf("[blue]Depends On:[white] %s\n", tview.Escape(strings.Join(pkg.DependsOn, ", "))))
 	}
-	
+
 	if len(pkg.Conflicts) > 0 {
-		sb.WriteString(fmt.Sprintf("[green]Conflicts With:[white] %s\n", strings.Join(pkg.Conflicts, ", ")))
+		sb.WriteString(fmt.Sprintf("[blue]Conflicts With:[white] %s\n", tview.Escape(strings.Join(pkg.Conflicts, ", "))))
 	}
-	
+
 	if len(pkg.Replaces) > 0 {
-		sb.WriteString(fmt.Sprintf("[green]Replaces:[white] %s\n", strings.Join(pkg.Replaces, ", ")))
+		sb.WriteString(fmt.Sprintf("[blue]Replaces:[white] %s\n", tview.Escape(strings.Join(pkg.Replaces, ", "))))
 	}
-	
+
 	return sb.String()
 }
 
@@ -478,8 +631,11 @@ func (a *App) selectItem() {
 	// Handle selection based on mode
 	switch a.currentMode {
 	case "package":
-		// Show confirmation dialog before installation
-		a.showInstallConfirmation(result.Value)
+		if a.conf.PackageManager.ConfirmInstall {
+			a.showInstallConfirmation(result.Value)
+			return
+		}
+		a.installPackage(result.Value)
 	case "github":
 		a.cloneRepository(result.Value)
 	case "directory":
@@ -508,7 +664,7 @@ func (a *App) showInstallConfirmation(pkgName string) {
 
 // installPackage installs a package using the appropriate package manager
 func (a *App) installPackage(pkgName string) {
-	pkgManager := util.DetectPackageManager()
+	pkgManager := a.packageManager()
 	var cmd *exec.Cmd
 
 	// Use the configured sudo command
@@ -558,44 +714,44 @@ func (a *App) installPackage(pkgName string) {
 	header := fmt.Sprintf("[:: Installing package: %s ::]\n", pkgName)
 	header += "[:: View real-time output below ::]\n"
 	header += "[:: Press 'q' to quit, 'Esc' to return to search ::]\n\n"
-	
+
 	if needsSudo {
 		header += fmt.Sprintf("Command: %s\n", fullCommand)
 		header += "Note: System may prompt for password in terminal\n\n"
 	} else {
 		header += fmt.Sprintf("Command: %s\n\n", fullCommand)
 	}
-	
+
 	a.detailView.SetText(header)
-	
+
 	// Create a pipe to capture command output
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		a.detailView.SetText(fmt.Sprintf("%sError creating stdout pipe: %v", header, err))
 		return
 	}
-	
+
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		a.detailView.SetText(fmt.Sprintf("%sError creating stderr pipe: %v", header, err))
 		return
 	}
-	
+
 	// Set proper environment to handle terminal interaction
 	cmd.Stdin = os.Stdin
-	
+
 	// Start the command
 	if err := cmd.Start(); err != nil {
 		a.detailView.SetText(fmt.Sprintf("%sError starting installation: %v", header, err))
 		return
 	}
-	
+
 	// Move focus to detail view to show output
 	a.app.SetFocus(a.detailView)
-	
+
 	// Create a multi-reader to combine stdout and stderr
 	outputReader := io.MultiReader(stdout, stderr)
-	
+
 	// Read output in a goroutine and update the UI
 	go func() {
 		scanner := bufio.NewScanner(outputReader)
@@ -610,7 +766,7 @@ func (a *App) installPackage(pkgName string) {
 				a.detailView.ScrollToEnd()
 			})
 		}
-		
+
 		// Wait for command to finish
 		err := cmd.Wait()
 		a.app.QueueUpdateDraw(func() {
@@ -619,7 +775,7 @@ func (a *App) installPackage(pkgName string) {
 			} else {
 				a.detailView.SetText(fmt.Sprintf("%s\nInstallation completed successfully!", a.detailView.GetText(true)))
 			}
-			
+
 			// Add final instructions
 			finalText := a.detailView.GetText(true)
 			finalText += "\n[:: Press 'Esc' to return to search ::]\n"
@@ -631,10 +787,7 @@ func (a *App) installPackage(pkgName string) {
 // cloneRepository clones a GitHub repository
 func (a *App) cloneRepository(url string) {
 	cmd := exec.Command("git", "clone", url)
-	a.detailView.SetText(fmt.Sprintf("Cloning repository...\n\nRunning: %s", strings.Join(cmd.Args, " ")))
-	
-	// In a real implementation, you would execute the command and show output
-	// For now, we'll just show what would be executed
+	a.runCommandInDetail(cmd, "Cloning repository", "Repository cloned successfully.")
 }
 
 // viewPackageScript displays the package script/content for the selected package
@@ -671,7 +824,7 @@ func (a *App) viewPackageScript() {
 	a.inScriptView = true
 
 	go func() {
-		script, err := search.GetPackageScript(pkgName)
+		script, err := search.GetPackageScriptWithManager(pkgName, a.packageManager())
 		a.app.QueueUpdateDraw(func() {
 			if err != nil {
 				a.detailView.SetText(fmt.Sprintf("Error loading package script: %v", err))
@@ -682,7 +835,7 @@ func (a *App) viewPackageScript() {
 			header := fmt.Sprintf("[:: Package Script for %s ::]\n", pkgName)
 			header += "[:: Use arrow keys to scroll, press 'v' again to return ::]\n\n"
 			a.detailView.SetText(header + script)
-			
+
 			// Move focus to detail view for scrolling
 			a.app.SetFocus(a.detailView)
 		})
@@ -691,13 +844,136 @@ func (a *App) viewPackageScript() {
 
 // openFile opens a file or directory
 func (a *App) openFile(path string) {
-	// For now, just show the path
-	a.detailView.SetText(fmt.Sprintf("Selected file: %s", path))
+	cmd, err := openCommand(path)
+	if err != nil {
+		a.detailView.SetText(fmt.Sprintf("[yellow]Selected path[white]\n%s\n\n[yellow]%v", tview.Escape(path), err))
+		return
+	}
+
+	a.detailView.SetText(fmt.Sprintf("[blue]Opening[white]\n%s\n\n[gray]Running: %s", tview.Escape(path), tview.Escape(strings.Join(cmd.Args, " "))))
+	go func() {
+		err := cmd.Start()
+		a.app.QueueUpdateDraw(func() {
+			if err != nil {
+				a.detailView.SetText(fmt.Sprintf("[red]Open failed:[white] %v\n\n%s", err, tview.Escape(path)))
+				return
+			}
+			a.detailView.SetText(fmt.Sprintf("[green]Opened:[white] %s", tview.Escape(path)))
+		})
+	}()
+}
+
+func (a *App) runCommandInDetail(cmd *exec.Cmd, title, successMessage string) {
+	header := fmt.Sprintf("[blue]%s[white]\n[gray]Running: %s\n\n", tview.Escape(title), tview.Escape(strings.Join(cmd.Args, " ")))
+	a.detailView.SetText(header)
+	a.app.SetFocus(a.detailView)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		a.detailView.SetText(fmt.Sprintf("%s[red]Error:[white] %v", header, err))
+		return
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		a.detailView.SetText(fmt.Sprintf("%s[red]Error:[white] %v", header, err))
+		return
+	}
+
+	if err := cmd.Start(); err != nil {
+		a.detailView.SetText(fmt.Sprintf("%s[red]Error:[white] %v", header, err))
+		return
+	}
+
+	go func() {
+		scanner := bufio.NewScanner(io.MultiReader(stdout, stderr))
+		var output strings.Builder
+		for scanner.Scan() {
+			line := scanner.Text()
+			output.WriteString(line)
+			output.WriteString("\n")
+			snapshot := output.String()
+			a.app.QueueUpdateDraw(func() {
+				a.detailView.SetText(header + tview.Escape(snapshot))
+				a.detailView.ScrollToEnd()
+			})
+		}
+
+		err := cmd.Wait()
+		a.app.QueueUpdateDraw(func() {
+			body := tview.Escape(output.String())
+			if err != nil {
+				a.detailView.SetText(fmt.Sprintf("%s%s\n[red]Command failed:[white] %v", header, body, err))
+				return
+			}
+			a.detailView.SetText(fmt.Sprintf("%s%s\n[green]%s", header, body, tview.Escape(successMessage)))
+		})
+	}()
+}
+
+func previewFile(path, previewCommand string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	command := strings.ReplaceAll(previewCommand, "{}", shellQuote(path))
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return "", fmt.Errorf("preview timed out")
+	}
+	if err != nil {
+		return "", err
+	}
+	return string(output), nil
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func fileKind(info os.FileInfo) string {
+	if info.IsDir() {
+		return "directory"
+	}
+	if info.Mode().IsRegular() {
+		return "file"
+	}
+	return info.Mode().Type().String()
+}
+
+func formatBytes(size int64) string {
+	const unit = 1024
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
+	}
+	div, exp := int64(unit), 0
+	for n := size / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(size)/float64(div), "KMGTPE"[exp])
+}
+
+func openCommand(path string) (*exec.Cmd, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", absPath), nil
+	case "windows":
+		return exec.Command("cmd", "/c", "start", "", absPath), nil
+	default:
+		if util.CommandExists("xdg-open") {
+			return exec.Command("xdg-open", absPath), nil
+		}
+		return nil, fmt.Errorf("xdg-open was not found")
+	}
 }
 
 // Start runs the application
 func (a *App) Start() error {
-	a.currentMode = "package"
-	a.inputField.SetLabel("Package Search: ")
+	a.setMode("package")
 	return a.app.SetRoot(a.flexRoot, true).EnableMouse(true).Run()
 }

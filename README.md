@@ -7,8 +7,8 @@ ezysearch is a terminal-based application that provides a unified interface for 
 ## Features
 
 - **Cross-platform package search**: Works with pacman/yay (Arch), apt (Debian/Ubuntu), brew (macOS), and dnf (Fedora)
-- **GitHub repository search**: Search and clone repositories directly from the terminal
-- **File/directory search**: Find files in your filesystem with preview functionality
+- **GitHub repository search**: Search and clone repositories directly from the terminal using `gh`
+- **File/directory search**: Find files in your filesystem with preview and open actions
 - **Interactive TUI**: User-friendly terminal interface built with tview
 - **Fuzzy search**: Quickly find what you're looking for
 
@@ -43,6 +43,16 @@ Run ezysearch from your terminal:
 ezysearch
 ```
 
+To force a package manager instead of using auto-detection:
+
+```bash
+ezysearch --homebrew
+ezysearch --dnf
+ezysearch --package-manager brew
+```
+
+Supported package-manager flags are `--auto`, `--yay`, `--pacman`, `--apt`, `--brew`, `--homebrew`, `--hombrew`, `--dnf`, and `--zypper`.
+
 ### Key Bindings
 
 - `Ctrl+P` - Package search
@@ -54,18 +64,30 @@ ezysearch
 
 ## Configuration
 
-ezysearch creates a configuration file at `~/.config/ezysearch/config.json` with the following options:
+ezysearch creates a TOML configuration file at `~/.config/ezysearch/config.toml` with the following options:
 
-```json
-{
-  "package_search_key": "Ctrl+P",
-  "github_search_key": "Ctrl+G",
-  "directory_search_key": "Ctrl+T",
-  "github_limit": 50,
-  "directory_command": "fd --hidden --strip-cwd-prefix --exclude .git",
-  "preview_command": "bat --color=always -n --line-range :500 {}",
-  "cache_expiry": 60
-}
+```toml
+package_search_key = "Ctrl+P"
+github_search_key = "Ctrl+G"
+directory_search_key = "Ctrl+T"
+github_limit = 50
+directory_command = "fd --hidden --strip-cwd-prefix --exclude .git"
+preview_command = "bat --color=always -n --line-range :500 {}"
+cache_expiry = 60
+
+[package_manager]
+sudo = "sudo"
+confirm_install = true
+pacman_flags = []
+apt_flags = []
+dnf_flags = []
+zypper_flags = []
+brew_flags = []
+yay_flags = []
+
+[ui]
+color_scheme = "default"
+show_package_count = true
 ```
 
 ## License

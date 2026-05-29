@@ -109,11 +109,9 @@ echo "Setting up as zsh plugin..."
 setup_zsh_plugin
 
 echo "${GREEN}Installation complete!${NC}"
-echo "Run 'source ~/.zshrc' to start using ezysearch, or restart your terminal."
+echo "Run 'source ~/.zshrc' to load the ezysearch functions, or restart your terminal."
 echo
 echo "Usage:"
-echo "  • Press Ctrl+P to search and install packages"
-echo "  • Press Ctrl+G to search GitHub repositories" 
-echo "  • Press Ctrl+T to search directories"
+echo "  • Run ezysearch"
 echo
 echo "Configuration file is located at: $CONFIG_DIR/config.zsh"

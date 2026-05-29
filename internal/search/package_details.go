@@ -11,32 +11,37 @@ import (
 
 // DetailedPackage represents a package with detailed information
 type DetailedPackage struct {
-	Name         string
-	Version      string
-	Description  string
-	Repository   string
-	Architecture string
-	URL          string
-	Licenses     []string
-	Groups       []string
-	Provides     []string
-	DependsOn    []string
-	Conflicts    []string
-	Replaces     []string
-	DownloadSize string
+	Name          string
+	Version       string
+	Description   string
+	Repository    string
+	Architecture  string
+	URL           string
+	Licenses      []string
+	Groups        []string
+	Provides      []string
+	DependsOn     []string
+	Conflicts     []string
+	Replaces      []string
+	DownloadSize  string
 	InstalledSize string
-	Packager     string
-	BuildDate    string
-	InstallDate  string
+	Packager      string
+	BuildDate     string
+	InstallDate   string
 	InstallReason string
 	InstallScript bool
-	ValidatedBy  []string
+	ValidatedBy   []string
 }
 
 // GetPackageDetails retrieves detailed information about a package
 func GetPackageDetails(pkgName string) (*DetailedPackage, error) {
-	pkgManager := util.DetectPackageManager()
-	
+	return GetPackageDetailsWithManager(pkgName, util.Unknown)
+}
+
+// GetPackageDetailsWithManager retrieves details using the selected package manager.
+func GetPackageDetailsWithManager(pkgName string, pkgManager util.PackageManager) (*DetailedPackage, error) {
+	pkgManager = util.ResolvePackageManager(pkgManager)
+
 	switch pkgManager {
 	case util.Yay:
 		return getYayPackageDetails(pkgName)
@@ -62,7 +67,7 @@ func getYayPackageDetails(pkgName string) (*DetailedPackage, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return parsePacmanInfo(string(output)), nil
 }
 
@@ -73,7 +78,7 @@ func getPacmanPackageDetails(pkgName string) (*DetailedPackage, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return parsePacmanInfo(string(output)), nil
 }
 
@@ -84,7 +89,7 @@ func getAptPackageDetails(pkgName string) (*DetailedPackage, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return parseAptInfo(string(output)), nil
 }
 
@@ -95,7 +100,7 @@ func getBrewPackageDetails(pkgName string) (*DetailedPackage, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return parseBrewInfo(string(output))
 }
 
@@ -106,7 +111,7 @@ func getDnfPackageDetails(pkgName string) (*DetailedPackage, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return parseDnfInfo(string(output)), nil
 }
 
@@ -117,7 +122,7 @@ func getZypperPackageDetails(pkgName string) (*DetailedPackage, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return parseZypperInfo(string(output)), nil
 }
 
@@ -125,16 +130,16 @@ func getZypperPackageDetails(pkgName string) (*DetailedPackage, error) {
 func parsePacmanInfo(output string) *DetailedPackage {
 	pkg := &DetailedPackage{}
 	lines := strings.Split(output, "\n")
-	
+
 	for _, line := range lines {
 		parts := strings.SplitN(line, ":", 2)
 		if len(parts) != 2 {
 			continue
 		}
-		
+
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
-		
+
 		switch key {
 		case "Name":
 			pkg.Name = value
@@ -178,7 +183,7 @@ func parsePacmanInfo(output string) *DetailedPackage {
 			pkg.BuildDate = value
 		}
 	}
-	
+
 	return pkg
 }
 
@@ -186,16 +191,16 @@ func parsePacmanInfo(output string) *DetailedPackage {
 func parseAptInfo(output string) *DetailedPackage {
 	pkg := &DetailedPackage{}
 	lines := strings.Split(output, "\n")
-	
+
 	for _, line := range lines {
 		parts := strings.SplitN(line, ":", 2)
 		if len(parts) != 2 {
 			continue
 		}
-		
+
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
-		
+
 		switch key {
 		case "Package":
 			pkg.Name = value
@@ -211,7 +216,7 @@ func parseAptInfo(output string) *DetailedPackage {
 			pkg.InstalledSize = value
 		}
 	}
-	
+
 	return pkg
 }
 
@@ -221,11 +226,11 @@ func parseBrewInfo(output string) (*DetailedPackage, error) {
 	if err := json.Unmarshal([]byte(output), &brewInfo); err != nil {
 		return nil, err
 	}
-	
+
 	if len(brewInfo) == 0 {
 		return nil, fmt.Errorf("no package information found")
 	}
-	
+
 	pkgInfo := brewInfo[0]
 	pkg := &DetailedPackage{
 		Name:        getStringValue(pkgInfo, "name"),
@@ -233,7 +238,7 @@ func parseBrewInfo(output string) (*DetailedPackage, error) {
 		Description: getStringValue(pkgInfo, "desc"),
 		URL:         getStringValue(pkgInfo, "homepage"),
 	}
-	
+
 	return pkg, nil
 }
 
@@ -241,16 +246,16 @@ func parseBrewInfo(output string) (*DetailedPackage, error) {
 func parseDnfInfo(output string) *DetailedPackage {
 	pkg := &DetailedPackage{}
 	lines := strings.Split(output, "\n")
-	
+
 	for _, line := range lines {
 		parts := strings.SplitN(line, ":", 2)
 		if len(parts) != 2 {
 			continue
 		}
-		
+
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
-		
+
 		switch key {
 		case "Name":
 			pkg.Name = value
@@ -274,7 +279,7 @@ func parseDnfInfo(output string) *DetailedPackage {
 			pkg.InstalledSize = value
 		}
 	}
-	
+
 	return pkg
 }
 
@@ -282,10 +287,10 @@ func parseDnfInfo(output string) *DetailedPackage {
 func parseZypperInfo(output string) *DetailedPackage {
 	pkg := &DetailedPackage{}
 	lines := strings.Split(output, "\n")
-	
+
 	// Track if we're in the "Repository" section
 	inRepositorySection := false
-	
+
 	for _, line := range lines {
 		// Check for section headers
 		if strings.HasPrefix(line, "Information for package") {
@@ -296,36 +301,36 @@ func parseZypperInfo(output string) *DetailedPackage {
 			}
 			continue
 		}
-		
+
 		if strings.HasPrefix(line, "Repository") {
 			inRepositorySection = true
 			continue
 		}
-		
+
 		// Skip empty lines
 		if line == "" {
 			continue
 		}
-		
+
 		// Parse key-value pairs
 		parts := strings.SplitN(line, ":", 2)
 		if len(parts) != 2 {
 			continue
 		}
-		
+
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
-		
+
 		// Skip if we're in repository section and the key is not relevant
 		if inRepositorySection && key != "Alias" && key != "Name" && key != "Path" {
 			continue
 		}
-		
+
 		// Reset repository section flag when we hit a new section
 		if inRepositorySection && (key == "Alias" || key == "Name" || key == "Path") {
 			inRepositorySection = false
 		}
-		
+
 		switch key {
 		case "Name":
 			if pkg.Name == "" { // Only set if not already set from header
@@ -353,7 +358,7 @@ func parseZypperInfo(output string) *DetailedPackage {
 			pkg.DownloadSize = value
 		}
 	}
-	
+
 	return pkg
 }
 
@@ -361,7 +366,7 @@ func parseZypperInfo(output string) *DetailedPackage {
 func getStringValue(m map[string]interface{}, path string) string {
 	keys := strings.Split(path, ".")
 	current := m
-	
+
 	for i, key := range keys {
 		if i == len(keys)-1 {
 			if val, ok := current[key]; ok {
@@ -371,7 +376,7 @@ func getStringValue(m map[string]interface{}, path string) string {
 			}
 			return ""
 		}
-		
+
 		if val, ok := current[key]; ok {
 			if next, ok := val.(map[string]interface{}); ok {
 				current = next
@@ -382,6 +387,6 @@ func getStringValue(m map[string]interface{}, path string) string {
 			return ""
 		}
 	}
-	
+
 	return ""
 }

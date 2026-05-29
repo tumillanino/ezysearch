@@ -35,10 +35,10 @@ type Settings struct {
 type PackageManagerConfig struct {
 	// Sudo command (sudo, doas, etc.)
 	Sudo string `toml:"sudo"`
-	
+
 	// Confirm before installing packages
 	ConfirmInstall bool `toml:"confirm_install"`
-	
+
 	// Additional flags for package managers
 	PacmanFlags []string `toml:"pacman_flags"`
 	AptFlags    []string `toml:"apt_flags"`
@@ -52,7 +52,7 @@ type PackageManagerConfig struct {
 type UIConfig struct {
 	// Color scheme
 	ColorScheme string `toml:"color_scheme"`
-	
+
 	// Show package counts in search results
 	ShowPackageCount bool `toml:"show_package_count"`
 }
@@ -96,7 +96,7 @@ func ConfigPath() string {
 // Load loads the configuration from file
 func Load() (*Settings, error) {
 	path := ConfigPath()
-	
+
 	// Check if config file exists
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		// Create default config

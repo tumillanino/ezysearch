@@ -13,7 +13,7 @@ class Ezysearch < Formula
   def install
     system "go", "build", "-o", bin/"ezysearch", "cmd/ezysearch/main.go"
     
-    # Install shell completion and key bindings
+    # Install shell completions
     bash_completion.install "shell/completion.bash" => "ezysearch"
     zsh_completion.install "shell/completion.zsh" => "_ezysearch"
   end
@@ -23,7 +23,7 @@ class Ezysearch < Formula
       To use ezysearch, run:
         ezysearch
       
-      Usage:
+      Inside the app:
         • Press Ctrl+P to search and install packages
         • Press Ctrl+G to search GitHub repositories
         • Press Ctrl+T to search directories

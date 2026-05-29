@@ -1,6 +1,7 @@
 package search
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -20,10 +21,10 @@ type Package struct {
 
 // GitHubRepo represents a GitHub repository
 type GitHubRepo struct {
-	NameWithOwner string
-	URL           string
-	Description   string
-	Stars         int
+	NameWithOwner string `json:"nameWithOwner"`
+	URL           string `json:"url"`
+	Description   string `json:"description"`
+	Stars         int    `json:"stargazerCount"`
 }
 
 // SearchResult represents a generic search result
@@ -35,8 +36,13 @@ type SearchResult struct {
 
 // PackageSearch searches for packages using the system package manager
 func PackageSearch(query string) ([]SearchResult, error) {
-	pkgManager := util.DetectPackageManager()
-	
+	return PackageSearchWithManager(query, util.Unknown)
+}
+
+// PackageSearchWithManager searches packages using the selected package manager.
+func PackageSearchWithManager(query string, pkgManager util.PackageManager) ([]SearchResult, error) {
+	pkgManager = util.ResolvePackageManager(pkgManager)
+
 	switch pkgManager {
 	case util.Yay:
 		return yaySearch(query)
@@ -68,43 +74,32 @@ func GitHubSearch(query string, limit int) ([]SearchResult, error) {
 		return nil, fmt.Errorf("you need to authenticate with GitHub CLI first. Run 'gh auth login'")
 	}
 
-	// Search for repositories
-	args := []string{"search", "repos", query, "--limit", fmt.Sprintf("%d", limit), 
-		"--json", "nameWithOwner,url,description,stargazerCount", 
-		"--jq", ".[] | \"\\(.nameWithOwner)|\\(.url)|\\(.description // \"\")|\\(.stargazerCount)\""}
-	
+	args := []string{
+		"search", "repos", query,
+		"--limit", fmt.Sprintf("%d", limit),
+		"--json", "nameWithOwner,url,description,stargazerCount",
+	}
+
 	cmd = exec.Command("gh", args...)
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	var results []SearchResult
-	
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-		
-		parts := strings.Split(line, "|")
-		if len(parts) >= 4 {
-			nameWithOwner := parts[0]
-			url := parts[1]
-			description := parts[2]
-			stars := parts[3]
-			
-			title := fmt.Sprintf("%s (%s ★)", nameWithOwner, stars)
-			value := url
-			
-			results = append(results, SearchResult{
-				Title:       title,
-				Description: description,
-				Value:       value,
-			})
-		}
+	var repos []GitHubRepo
+	if err := json.Unmarshal(output, &repos); err != nil {
+		return nil, fmt.Errorf("could not parse GitHub search results: %w", err)
 	}
-	
+
+	var results []SearchResult
+	for _, repo := range repos {
+		results = append(results, SearchResult{
+			Title:       fmt.Sprintf("%s (%d stars)", repo.NameWithOwner, repo.Stars),
+			Description: repo.Description,
+			Value:       repo.URL,
+		})
+	}
+
 	return results, nil
 }
 
@@ -112,47 +107,47 @@ func GitHubSearch(query string, limit int) ([]SearchResult, error) {
 func DirectorySearch(query string, dirCommand string) ([]SearchResult, error) {
 	// If fd is not available, fall back to find
 	if !util.CommandExists("fd") {
-		dirCommand = "find . -type f -not -path '*/.git/*'"
+		dirCommand = "find . -not -path '*/.git/*'"
 	}
-	
+
 	// Add query to the command if provided
 	if query != "" {
 		if strings.Contains(dirCommand, "fd") {
-			dirCommand += " " + query
+			dirCommand += " " + shellQuote(query)
 		} else if strings.Contains(dirCommand, "find") {
-			dirCommand += fmt.Sprintf(" -name '*%s*'", query)
+			dirCommand += fmt.Sprintf(" -name %s", shellQuote("*"+query+"*"))
 		}
 	}
-	
+
 	cmd := exec.Command("sh", "-c", dirCommand)
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
-	
+
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	var results []SearchResult
-	
+
 	wd, _ := os.Getwd()
-	
+
 	for _, line := range lines {
 		if line == "" {
 			continue
 		}
-		
+
 		// Get absolute path
 		absPath := line
 		if !filepath.IsAbs(line) {
 			absPath = filepath.Join(wd, line)
 		}
-		
+
 		results = append(results, SearchResult{
 			Title:       line,
 			Description: absPath,
 			Value:       absPath,
 		})
 	}
-	
+
 	return results, nil
 }
 
@@ -163,7 +158,7 @@ func yaySearch(query string) ([]SearchResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return filterPackages(strings.Split(strings.TrimSpace(string(output)), "\n"), query), nil
 }
 
@@ -174,7 +169,7 @@ func pacmanSearch(query string) ([]SearchResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	var packages []string
 	for _, line := range lines {
@@ -183,7 +178,7 @@ func pacmanSearch(query string) ([]SearchResult, error) {
 			packages = append(packages, parts[1])
 		}
 	}
-	
+
 	return filterPackages(packages, query), nil
 }
 
@@ -194,7 +189,7 @@ func aptSearch(query string) ([]SearchResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return filterPackages(strings.Split(strings.TrimSpace(string(output)), "\n"), query), nil
 }
 
@@ -205,7 +200,7 @@ func brewSearch(query string) ([]SearchResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return filterPackages(strings.Split(strings.TrimSpace(string(output)), "\n"), query), nil
 }
 
@@ -216,7 +211,7 @@ func dnfSearch(query string) ([]SearchResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	var packages []string
 	// Skip the first line (header)
@@ -231,7 +226,7 @@ func dnfSearch(query string) ([]SearchResult, error) {
 			packages = append(packages, pkgName)
 		}
 	}
-	
+
 	return filterPackages(packages, query), nil
 }
 
@@ -246,10 +241,10 @@ func zypperSearch(query string) ([]SearchResult, error) {
 			return nil, err
 		}
 	}
-	
+
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	var packages []string
-	
+
 	// Parse zypper search output
 	// Skip header lines and parse package names
 	for _, line := range lines {
@@ -257,7 +252,7 @@ func zypperSearch(query string) ([]SearchResult, error) {
 		if line == "" || strings.HasPrefix(line, "S |") || strings.HasPrefix(line, "--+") {
 			continue
 		}
-		
+
 		// Parse the line: "i | package-name | summary"
 		parts := strings.Split(line, "|")
 		if len(parts) >= 2 {
@@ -265,7 +260,7 @@ func zypperSearch(query string) ([]SearchResult, error) {
 			packages = append(packages, pkgName)
 		}
 	}
-	
+
 	return filterPackages(packages, query), nil
 }
 
@@ -274,9 +269,9 @@ func filterPackages(packages []string, query string) []SearchResult {
 	var exactMatches []SearchResult
 	var prefixMatches []SearchResult
 	var substringMatches []SearchResult
-	
+
 	query = strings.ToLower(query)
-	
+
 	for _, pkg := range packages {
 		pkgLower := strings.ToLower(pkg)
 		if query == "" {
@@ -308,10 +303,14 @@ func filterPackages(packages []string, query string) []SearchResult {
 			})
 		}
 	}
-	
+
 	// Combine results in order of preference: exact, prefix, substring
 	results := append(exactMatches, prefixMatches...)
 	results = append(results, substringMatches...)
-	
+
 	return results
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }

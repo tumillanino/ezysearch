@@ -19,7 +19,7 @@ cache_expiry = 60
 # Package manager settings
 [package_manager]
   # Change this to "doas" if you prefer doas over sudo
-  sudo = "doas"
+  sudo = "sudo"
   
   # Set to false to skip confirmation before installing packages
   confirm_install = true
@@ -40,6 +40,3 @@ cache_expiry = 60
   
   # Show package counts in search results
   show_package_count = true
-  
-  # Enable syntax highlighting for package scripts
-  syntax_highlighting = true

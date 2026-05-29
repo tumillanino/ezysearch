@@ -35,9 +35,7 @@ class EzySearch < Formula
         $HOME/.config/ezysearch/
       
       Usage:
-        • Press Ctrl+P to search and install packages
-        • Press Ctrl+G to search GitHub repositories
-        • Press Ctrl+D to search directories
+        • Run ezysearch
     EOS
   end
   

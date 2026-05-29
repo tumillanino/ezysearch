@@ -17,11 +17,6 @@ EZY_CONFIG_FILE="$EZY_CONFIG_DIR/config.zsh"
 if [[ ! -f "$EZY_CONFIG_FILE" ]]; then
   cat > "$EZY_CONFIG_FILE" <<EOL
 # ezysearch configuration
-# Keybindings
-bindkey '^P' ezy_package_search  # Ctrl+P for package search
-bindkey '^G' ezy_github_search   # Ctrl+G for GitHub repo search
-bindkey '^T' ezy_directory_search # Ctrl+T for directory search
-
 # Directory search settings
 export EZY_DIR_COMMAND="fd --hidden --strip-cwd-prefix --exclude .git"
 export EZY_DIR_PREVIEW="bat --color=always -n --line-range :500 {}"
@@ -30,6 +25,17 @@ export EZY_DIR_PREVIEW="bat --color=always -n --line-range :500 {}"
 export EZY_GITHUB_LIMIT=50
 EOL
 fi
+
+_ezy_config_tmp="$EZY_CONFIG_FILE.tmp.$$"
+while IFS= read -r _ezy_config_line; do
+  case "$_ezy_config_line" in
+    "bindkey '^P' ezy_package_search"*) continue ;;
+    "bindkey '^G' ezy_github_search"*) continue ;;
+    "bindkey '^T' ezy_directory_search"*) continue ;;
+  esac
+  print -r -- "$_ezy_config_line"
+done < "$EZY_CONFIG_FILE" > "$_ezy_config_tmp" && mv "$_ezy_config_tmp" "$EZY_CONFIG_FILE"
+unset _ezy_config_line _ezy_config_tmp
 
 # Source configuration
 source "$EZY_CONFIG_FILE"
@@ -167,10 +173,3 @@ ezy_directory_search() {
 zle -N ezy_package_search
 zle -N ezy_github_search
 zle -N ezy_directory_search
-
-# Initialize keybindings
-# These will be overridden by any settings in the config file
-bindkey '^P' ezy_package_search
-bindkey '^G' ezy_github_search
-bindkey '^T' ezy_directory_search
-

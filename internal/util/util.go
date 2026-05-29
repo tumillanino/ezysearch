@@ -1,6 +1,7 @@
 package util
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -52,6 +53,36 @@ func DetectPackageManager() PackageManager {
 	}
 
 	return Unknown
+}
+
+// ParsePackageManager converts a CLI/config value into a package manager.
+func ParsePackageManager(value string) (PackageManager, error) {
+	switch strings.ToLower(strings.TrimLeft(value, "-")) {
+	case "", "auto":
+		return Unknown, nil
+	case "yay":
+		return Yay, nil
+	case "pacman":
+		return Pacman, nil
+	case "apt":
+		return Apt, nil
+	case "brew", "homebrew", "hombrew":
+		return Brew, nil
+	case "dnf":
+		return Dnf, nil
+	case "zypper":
+		return Zypper, nil
+	default:
+		return Unknown, fmt.Errorf("unsupported package manager: %s", value)
+	}
+}
+
+// ResolvePackageManager returns the selected manager or falls back to detection.
+func ResolvePackageManager(selected PackageManager) PackageManager {
+	if selected != Unknown {
+		return selected
+	}
+	return DetectPackageManager()
 }
 
 // CommandExists checks if a command exists in PATH

@@ -3,11 +3,11 @@
 # Variables
 BINARY=ezysearch
 VERSION=1.0.0
-MAIN_DIR=cmd/ezysearch
+LDFLAGS=-s -w -X github.com/tumillanino/ezysearch/internal/cli.Version=${VERSION}
 
 # Build for current platform
 build:
-	go build -o ${BINARY} ${MAIN_DIR}/main.go
+	go build -ldflags "${LDFLAGS}" -o ${BINARY} .
 
 # Install to system
 install: build
@@ -15,10 +15,10 @@ install: build
 
 # Build for all platforms
 build-all:
-	GOOS=linux GOARCH=amd64 go build -o bin/${BINARY}-linux-amd64 ${MAIN_DIR}/main.go
-	GOOS=linux GOARCH=arm64 go build -o bin/${BINARY}-linux-arm64 ${MAIN_DIR}/main.go
-	GOOS=darwin GOARCH=amd64 go build -o bin/${BINARY}-darwin-amd64 ${MAIN_DIR}/main.go
-	GOOS=darwin GOARCH=arm64 go build -o bin/${BINARY}-darwin-arm64 ${MAIN_DIR}/main.go
+	GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o bin/${BINARY}-linux-amd64 .
+	GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o bin/${BINARY}-linux-arm64 .
+	GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o bin/${BINARY}-darwin-amd64 .
+	GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o bin/${BINARY}-darwin-arm64 .
 
 # Clean build artifacts
 clean:

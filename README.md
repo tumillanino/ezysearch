@@ -14,6 +14,14 @@ ezysearch is a terminal-based application that provides a unified interface for 
 
 ## Installation
 
+### Go install
+
+```bash
+go install github.com/tumillanino/ezysearch@latest
+```
+
+Make sure `$(go env GOPATH)/bin` is on your `PATH`, then run `ezysearch`.
+
 ### From source
 
 ```bash

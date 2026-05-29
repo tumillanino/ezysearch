@@ -11,7 +11,7 @@ class Ezysearch < Formula
   depends_on "fzf"
   
   def install
-    system "go", "build", "-o", bin/"ezysearch", "cmd/ezysearch/main.go"
+    system "go", "build", "-o", bin/"ezysearch", "."
     
     # Install shell completions
     bash_completion.install "shell/completion.bash" => "ezysearch"

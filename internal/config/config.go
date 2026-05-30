@@ -10,16 +10,7 @@ import (
 // Settings holds the application configuration
 type Settings struct {
 	// Key bindings
-	PackageSearchKey   string `toml:"package_search_key"`
-	GitHubSearchKey    string `toml:"github_search_key"`
-	DirectorySearchKey string `toml:"directory_search_key"`
-
-	// GitHub settings
-	GitHubLimit int `toml:"github_limit"`
-
-	// Directory search settings
-	DirectoryCommand string `toml:"directory_command"`
-	PreviewCommand   string `toml:"preview_command"`
+	PackageSearchKey string `toml:"package_search_key"`
 
 	// Cache settings
 	CacheExpiry int `toml:"cache_expiry"`
@@ -60,13 +51,8 @@ type UIConfig struct {
 // Default returns the default configuration
 func Default() *Settings {
 	return &Settings{
-		PackageSearchKey:   "Ctrl+P",
-		GitHubSearchKey:    "Ctrl+G",
-		DirectorySearchKey: "Ctrl+T",
-		GitHubLimit:        50,
-		DirectoryCommand:   "fd --hidden --strip-cwd-prefix --exclude .git",
-		PreviewCommand:     "bat --color=always -n --line-range :500 {}",
-		CacheExpiry:        60, // minutes
+		PackageSearchKey: "Ctrl+P",
+		CacheExpiry:      60, // minutes
 		PackageManager: PackageManagerConfig{
 			Sudo:           "sudo",
 			ConfirmInstall: true,

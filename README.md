@@ -1,14 +1,14 @@
 # ezysearch
 
-A universal package manager and search tool written in Go.
+A cross-platform package explorer written in Go.
 
-ezysearch is a terminal-based application that provides a unified interface for searching and installing packages across different operating systems, searching GitHub repositories, and finding files in your filesystem.
+ezysearch is a terminal-based application that provides a unified interface for searching, inspecting, and installing packages across different operating systems.
 
 ## Features
 
-- **Cross-platform package search**: Works with pacman/yay (Arch), apt (Debian/Ubuntu), brew (macOS), and dnf (Fedora)
-- **GitHub repository search**: Search and clone repositories directly from the terminal using `gh`
-- **File/directory search**: Find files in your filesystem with preview and open actions
+- **Cross-platform package search**: Works with pacman/yay (Arch), apt (Debian/Ubuntu), brew (macOS), dnf (Fedora), and zypper (openSUSE)
+- **Package details**: Preview package metadata before installing
+- **Package scripts**: Inspect supported package build/install scripts from the TUI
 - **Interactive TUI**: User-friendly terminal interface built with tview
 - **Fuzzy search**: Quickly find what you're looking for
 
@@ -25,11 +25,7 @@ Make sure `$(go env GOPATH)/bin` is on your `PATH`, then run `ezysearch`.
 ### From source
 
 ```bash
-# Clone the repository
-git clone https://github.com/tumillanino/ezysearch.git
-cd ezysearch
-
-# Build
+# Build from a checked-out source tree
 make build
 
 # Install
@@ -39,9 +35,7 @@ sudo make install
 ### Requirements
 
 - Go 1.21 or later
-- Supported package manager (pacman/yay, apt, brew, or dnf)
-- Optional: GitHub CLI for GitHub search functionality
-- Optional: fd and bat for enhanced directory search
+- Supported package manager (pacman/yay, apt, brew, dnf, or zypper)
 
 ## Usage
 
@@ -49,6 +43,19 @@ Run ezysearch from your terminal:
 
 ```bash
 ezysearch
+```
+
+Useful command-line flags:
+
+```bash
+ezysearch --help
+ezysearch --version
+ezysearch --doctor
+ezysearch --config-path
+ezysearch --print-config
+ezysearch --default-config
+ezysearch --list-package-managers
+ezysearch --completion zsh
 ```
 
 To force a package manager instead of using auto-detection:
@@ -64,8 +71,6 @@ Supported package-manager flags are `--auto`, `--yay`, `--pacman`, `--apt`, `--b
 ### Key Bindings
 
 - `Ctrl+P` - Package search
-- `Ctrl+G` - GitHub repository search
-- `Ctrl+T` - Directory/file search
 - `Enter` - Execute search or select item
 - `Esc` - Return to previous view
 - `Ctrl+C` - Quit
@@ -76,11 +81,6 @@ ezysearch creates a TOML configuration file at `~/.config/ezysearch/config.toml`
 
 ```toml
 package_search_key = "Ctrl+P"
-github_search_key = "Ctrl+G"
-directory_search_key = "Ctrl+T"
-github_limit = 50
-directory_command = "fd --hidden --strip-cwd-prefix --exclude .git"
-preview_command = "bat --color=always -n --line-range :500 {}"
 cache_expiry = 60
 
 [package_manager]

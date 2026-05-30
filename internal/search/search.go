@@ -1,11 +1,8 @@
 package search
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/tumillanino/ezysearch/internal/util"
@@ -17,14 +14,6 @@ type Package struct {
 	Description string
 	Version     string
 	Repository  string
-}
-
-// GitHubRepo represents a GitHub repository
-type GitHubRepo struct {
-	NameWithOwner string `json:"nameWithOwner"`
-	URL           string `json:"url"`
-	Description   string `json:"description"`
-	Stars         int    `json:"stargazerCount"`
 }
 
 // SearchResult represents a generic search result
@@ -59,96 +48,6 @@ func PackageSearchWithManager(query string, pkgManager util.PackageManager) ([]S
 	default:
 		return nil, fmt.Errorf("no supported package manager found")
 	}
-}
-
-// GitHubSearch searches for GitHub repositories using the GitHub CLI
-func GitHubSearch(query string, limit int) ([]SearchResult, error) {
-	// Check if GitHub CLI is installed
-	if !util.CommandExists("gh") {
-		return nil, fmt.Errorf("GitHub CLI (gh) is not installed")
-	}
-
-	// Ensure the user is authenticated
-	cmd := exec.Command("gh", "auth", "status")
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("you need to authenticate with GitHub CLI first. Run 'gh auth login'")
-	}
-
-	args := []string{
-		"search", "repos", query,
-		"--limit", fmt.Sprintf("%d", limit),
-		"--json", "nameWithOwner,url,description,stargazerCount",
-	}
-
-	cmd = exec.Command("gh", args...)
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-
-	var repos []GitHubRepo
-	if err := json.Unmarshal(output, &repos); err != nil {
-		return nil, fmt.Errorf("could not parse GitHub search results: %w", err)
-	}
-
-	var results []SearchResult
-	for _, repo := range repos {
-		results = append(results, SearchResult{
-			Title:       fmt.Sprintf("%s (%d stars)", repo.NameWithOwner, repo.Stars),
-			Description: repo.Description,
-			Value:       repo.URL,
-		})
-	}
-
-	return results, nil
-}
-
-// DirectorySearch searches for files/directories
-func DirectorySearch(query string, dirCommand string) ([]SearchResult, error) {
-	// If fd is not available, fall back to find
-	if !util.CommandExists("fd") {
-		dirCommand = "find . -not -path '*/.git/*'"
-	}
-
-	// Add query to the command if provided
-	if query != "" {
-		if strings.Contains(dirCommand, "fd") {
-			dirCommand += " " + shellQuote(query)
-		} else if strings.Contains(dirCommand, "find") {
-			dirCommand += fmt.Sprintf(" -name %s", shellQuote("*"+query+"*"))
-		}
-	}
-
-	cmd := exec.Command("sh", "-c", dirCommand)
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	var results []SearchResult
-
-	wd, _ := os.Getwd()
-
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-
-		// Get absolute path
-		absPath := line
-		if !filepath.IsAbs(line) {
-			absPath = filepath.Join(wd, line)
-		}
-
-		results = append(results, SearchResult{
-			Title:       line,
-			Description: absPath,
-			Value:       absPath,
-		})
-	}
-
-	return results, nil
 }
 
 // yaySearch searches for packages using yay
@@ -309,8 +208,4 @@ func filterPackages(packages []string, query string) []SearchResult {
 	results = append(results, substringMatches...)
 
 	return results
-}
-
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }

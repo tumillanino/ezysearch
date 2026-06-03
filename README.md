@@ -14,6 +14,10 @@ ezysearch is a terminal-based application that provides a unified interface for 
 - **Interactive TUI**: User-friendly terminal interface built with tview
 - **Fuzzy search**: Quickly find what you're looking for
 
+## Packages can be previewed before installing
+
+![Ezysearch TUI using OpenSUSE on WSL](assets/images/ezysearch-opensuse-in-wsl-script.png)
+
 ## Installation
 
 ### Go install

@@ -4,6 +4,8 @@ A cross-platform package explorer written in Go.
 
 ezysearch is a terminal-based application that provides a unified interface for searching, inspecting, and installing packages across different operating systems.
 
+![Ezysearch TUI using OpenSUSE on WSL](assets/images/ezysearch-opensuse-in-wsl.png)
+
 ## Features
 
 - **Cross-platform package search**: Works with pacman/yay (Arch), apt (Debian/Ubuntu), brew (macOS), dnf (Fedora), and zypper (openSUSE)
